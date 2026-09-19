@@ -95,6 +95,9 @@ struct thread
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
+  //ADDED NEW FIELD
+  long wakeup_tick;
+
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
   uint32_t *pagedir; /* Page directory. */
@@ -103,6 +106,7 @@ struct thread
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
 };
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
