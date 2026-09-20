@@ -140,7 +140,6 @@ static void timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-
   //ADDED NEW FUNCTION CALL
   clear_block_list(ticks);
 }
