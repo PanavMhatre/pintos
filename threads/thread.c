@@ -379,7 +379,12 @@ void thread_foreach(thread_action_func *func, void *aux)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority)
 {
-  thread_current()->priority = new_priority;
+  // ADDED: Change priority init and priority, but don't remove an active donation
+  struct thread* t = thread_current();
+  t->priority_init = new_priority;
+  if (list_empty(&t->locks)){
+    t->priority = new_priority;
+  }
   // ADDED: check if the current thread should yield to a higher priority thread
   if (!list_empty(&ready_list))
   {
@@ -501,7 +506,10 @@ static void init_thread(struct thread *t, const char *name, int priority)
   strlcpy(t->name, name, sizeof t->name);
   t->stack = (uint8_t *)t + PGSIZE;
   t->priority = priority;
+  // ADDED NEW FIELD INITIALIZATION
+  t->priority_init = priority;
   t->magic = THREAD_MAGIC;
+  list_init(&t->locks);
 
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);

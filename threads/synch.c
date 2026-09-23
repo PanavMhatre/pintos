@@ -49,7 +49,7 @@ void sema_init(struct semaphore *sema, unsigned value)
   list_init(&sema->waiters);
 }
 
-static bool sema_priority_comp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+static bool thread_priority_comp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *t1 = list_entry(a, struct thread, elem);
   struct thread *t2 = list_entry(b, struct thread, elem);
@@ -74,7 +74,7 @@ void sema_down(struct semaphore *sema)
   old_level = intr_disable();
   while (sema->value == 0)
   {
-    list_insert_ordered(&sema->waiters, &thread_current()->elem, sema_priority_comp, NULL);
+    list_insert_ordered(&sema->waiters, &thread_current()->elem, thread_priority_comp, NULL);
     thread_block();
   }
   sema->value--;
@@ -206,8 +206,30 @@ void lock_acquire(struct lock *lock)
   ASSERT(!intr_context());
   ASSERT(!lock_held_by_current_thread(lock));
 
+  //ADDED FULLY CHANGED
+  if(lock->holder != NULL){
+    struct thread* t = thread_current();
+    t->lock_wait = lock;
+    if(lock->max_priority < t->priority){
+      lock->max_priority = t->priority;
+    }
+    while(t->lock_wait != NULL){
+      if(t->lock_wait->max_priority < lock->max_priority){
+        t->lock_wait->max_priority = lock->max_priority;
+      }
+      if(t->lock_wait->holder->priority < lock->max_priority){
+        t->lock_wait->holder->priority = lock->max_priority;
+        t = t->lock_wait->holder;
+      }else{
+        break;
+      }
+    }
+  }
   sema_down(&lock->semaphore);
   lock->holder = thread_current();
+  lock->holder->lock_wait = NULL;
+  lock->max_priority = 0;
+  list_insert_ordered(&lock->holder->locks, &lock->elem, thread_priority_comp, NULL);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -238,6 +260,15 @@ void lock_release(struct lock *lock)
 {
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
+
+  list_remove(&lock->elem);
+  lock->holder->priority = lock->holder->priority_init;
+  if(!list_empty(&lock->holder->locks)){
+    struct lock* new_max_prio_lock = list_entry (list_front (&lock->holder->locks), struct lock, elem);
+    if(lock->holder->priority < new_max_prio_lock->max_priority){
+      lock->holder->priority = new_max_prio_lock->max_priority;
+    }
+  }
 
   lock->holder = NULL;
   sema_up(&lock->semaphore);

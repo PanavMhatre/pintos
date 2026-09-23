@@ -95,8 +95,11 @@ struct thread
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
-  //ADDED NEW FIELD
+  //ADDED NEW FIELDS
   long wakeup_tick;
+  int priority_init;
+  struct list locks;
+  struct lock* lock_wait;
 
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
