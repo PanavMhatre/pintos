@@ -118,8 +118,11 @@ void sema_up(struct semaphore *sema)
 
   old_level = intr_disable();
   struct thread *woken = NULL;
-  if (!list_empty(&sema->waiters))
+  if (!list_empty(&sema->waiters)){
+    // ADDED
+    list_sort(&sema->waiters, thread_priority_comp, NULL);
     woken = list_entry(list_pop_front(&sema->waiters), struct thread, elem);
+  }
   if (woken)
     thread_unblock(woken);
   sema->value++;
