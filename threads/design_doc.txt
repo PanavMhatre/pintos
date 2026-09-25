@@ -33,17 +33,17 @@ measured using the Linux command wc.  (Note that rtf files are NOT text files.)
 
 >> Fill your names, UT EIDs, CS logins, email addresses, and unique numbers:
 
-Name:
-EID:
-CS login:
-Email:
-Unique Number:
+Name: Panav Mhatre
+EID: pym245
+CS login: panavmha
+Email: panav@utexas.edu
+Unique Number: 55255
 
-Name:
-EID:
-CS login:
-Email:
-Unique Number:
+Name: Ankur Dabholkar
+EID: aad4237
+CS login: ankur06
+Email: aad4237@my.utexas.edu
+Unique Number: aad4237
 
 Name:
 EID:
@@ -71,7 +71,7 @@ Slip days used on this project:
 
 
 >> Please paste a link to your GitLab repo below.
->>
+>>https://gitlab-fall26.cs.utexas.edu/panavmha/pintos
 
 
 
@@ -88,6 +88,11 @@ Slip days used on this project:
 >> clock.  Identify the purpose of each in 25 words or less.
 >>
 
+static struct list blocked_list
+Meant to store all sleeping threads in sorted order of earliest wakeup tick to latest.
+
+long wakeup_tick
+New field in struct thread. Meant to keep track of the timer tick when the thread should wake up.
 
 ---- ALGORITHMS ----
 
@@ -96,24 +101,27 @@ Slip days used on this project:
 >> including the steps necessary to wake a thread (hint: timer_interrupt).
 >>
 
+When a thread calls timer_sleep, first the wakeup_tick is calculated (timer.c line 89), and thread_sleeping() is called. The thread_sleeping stores the wakeup_tick in the new field in the current thread struct (thread.c line 315), and then disables interrupts to prevent race conditions and so as to not lose ticks (might go past actual wakeup_tick). Then it inserts the thread into the blocked list, sets the status of the thread to blocked, calls schedule(), and resets interrupt status to what it was before disabling them. Then to wake a thread, all that is needed is to go through the blocked list, and wake up any thread which has a wakeup_tick > current tick, which involves removing it from the blocked list, setting its status to ready, and putting it in the ready queue (thread.c lines 328-347).
 
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?  
->>
+>> 
+
+The main step is ensuring that the blocked list is in order of wakeup_tick. That way, the handler does not need to go through the entire list to check which threads need to be woken up, only until it finds the first thread that should not be woken up, saving some time.
 
 
 ---- SYNCHRONIZATION ----
 
 
 >> A4: How are race conditions avoided when multiple threads call
->> timer_sleep() simultaneously?  Describe the race conditions.
->>
+p() simultaneously?  Describe the race conditions.
+>>  When multiple threads call sema_down() at the same time, interrupts are disabled so checking the semaphore value, adding a thread to the waiter list, blocking, and decrementing the value happen atomically. This prevents two threads from using the same semaphore value or missing a wake-up while another thread is being added to the waiters list.
 
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?  Describe the race conditions.
->>
-
+>> 
+Race conditions are avoided by disabling interrupts in thread_sleeping(); this prevents the timer from running clear_block_list, which could miss the thread and keep it sleeping forever. The timer interrupt can only check the list after the thread has been interrupted and blocked. 
 
 ---- RATIONALE ----
 
@@ -122,7 +130,7 @@ Slip days used on this project:
 >> another design you considered?  Be certain to compare between two
 >> working designs.
 >>
-
+We chose this design because it minimizes the amount of time needed with interrupts off. Another design we considered was having the blocked list be a normal list instead of a sorted one, that way adding to the list would be a constant time operation, and putting threads to sleep would be faster. However, we deemed sorting by the wakeup_time field more important, because although putting threads to sleep is slower, waking them up requires disabling interrupts, and the shorter critical sections are the better. As such, the less time needed to search the list the better, and sorting by wakeup_time instead of having a normal list achieves this.
 
 
 
@@ -138,8 +146,21 @@ Slip days used on this project:
 >> enumeration that was necessary for your implementation of priority
 >> scheduling and priority donation.  
 >> Identify the purpose of each in 25 words or less.
->>
+>> 
 
+int priority_init
+New field in struct thread. Meant to store the priority a thread was initialized with.
+
+struct list locks
+New field in struct thread. Meant to store all the locks a thread currently holds.
+struct lock* lock_wait
+New field in struct thread. Meant to store the lock a thread is currently waiting on.
+
+struct list_elem elem
+New field in struct lock. Meant to make locks capable of being elements in a list (in thread structs)
+
+struct int max_priority
+New field in struct lock. Meant to keep track of the max priority thread that is waiting on this lock.
 
 ---- ALGORITHMS ----
 
@@ -147,19 +168,21 @@ Slip days used on this project:
 >> B2: How do you ensure that the highest priority thread waiting for
 >> a lock, semaphore, or condition variable wakes up first?  
 >> Explain for all three.
->>
+>> We ensure the highest-priority waiting thread wakes first by inserting waiters into priority-ordered lists using list_insert_ordered(), with the highest priority placed at the front. Locks use their internal semaphore’s waiter list, semaphores directly sort sema->waiters, and condition variables sort their semaphore_elem waiters; each then uses list_pop_front() to select the highest-priority thread.
 
 
 >> B3: Describe the sequence of events when a call to lock_acquire()
 >> causes a priority donation.  How is nested donation handled?
 >>
 
+When a call to lock_acquire causes a priority donation, the first thing that happens is the thread that is waiting on the lock gets the lock assigned to its lock_wait field. Then we set the lock’s max_priority field to the priority of the waiting thread if the thread’s priority is higher than the max_priority field (synch.c lines 216-218). Next, we handle nested donation by going through the “linked list” created by the lock_wait and holder fields in the thread and lock structs respectively (synch.c lines 219-228). Finally, we do normal lock acquisition processes once the lock becomes available, with the main change from the original implementation being inserting the lock into the locks list in sorted order.
 
 >> B4: Describe the sequence of events when lock_release() is called
 >> on a lock on which a higher-priority thread is waiting.  What happens to
 >> the priority of the thread releasing the lock?
 >>
 
+When a call to lock_release is made, the first thing that happens is the lock is removed from the locks list of whatever thread held the lock. After that, the thread’s priority is reset to the priority it was initialized with (synch.c line 268). We then take the first element in the locks list of the thread (because the list is sorted by max_priority) to see if the thread releasing the lock still needs a priority donation or not. Finally, the lock is cleared of a holder, and v() is called on the semaphore.
 
 ---- SYNCHRONIZATION ----
 
@@ -168,6 +191,8 @@ Slip days used on this project:
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?  Defend your answer.
 >>
+
+A race could occur if a timer interrupt changed ready_list while thread_set_priority() was checking its first element, causing the thread to miss that it should yield. Disabling interrupts while updating the priority and checking the ready list makes the operation atomic; a lock is not suitable because interrupt handlers cannot safely block waiting for a lock.
 
 
 ---- RATIONALE ----
@@ -179,7 +204,7 @@ Slip days used on this project:
 >> be certain to compare against working designs.
 >>
 
-
+We chose this design for the priority donation because we wanted to emphasize not having to go through every thread/lock to determine dependencies. One of the ways we had thought of to determine these was to keep a global list of all acquired locks so we could update donations, acquisitions, and removals that way. However, we soon realized that this would take a lot of searching through the table, and not be as efficient as linking the threads back to the locks they owned and vice versa, creating a tree-like structure that managed the dependency chains much better than a table would.
 
 
                            SURVEY QUESTIONS
@@ -216,3 +241,5 @@ the semester.
 
 >> Any other comments?
 >>
+
+
